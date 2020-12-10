@@ -1,1 +1,5 @@
-# gb28181Platform
+# feature list
+[ ] Register
+[ ] KeepAlive
+[ ] Catalog
+[ ] Invite
