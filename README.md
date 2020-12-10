@@ -1,5 +1,5 @@
 # feature list
-[ ] Register
-[ ] KeepAlive
-[ ] Catalog
-[ ] Invite
+- [ ] Register
+- [ ] KeepAlive
+- [ ] Catalog
+- [ ] Invite
