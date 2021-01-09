@@ -3,3 +3,4 @@
 - [ ] KeepAlive
 - [ ] Catalog
 - [ ] Invite
+- [ ] display
