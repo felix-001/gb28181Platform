@@ -23,3 +23,10 @@ Makefile
 *.dox
 .deps
 .libs
+exosip-config.h
+osip-config.h
+stamp-h1
+libtool
+config.status
+sip_monitor
+sip_reg
