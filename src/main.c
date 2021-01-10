@@ -4,7 +4,6 @@
 
 #define CONF_FILE "/usr/local/etc/gbSrv.conf"
 
-
 static int conf_handler(void* user, const char* section, const char* name, const char* value)
 {
     #define same(key) !strcmp(name, key)
