@@ -11,15 +11,49 @@ static int conf_handler(void* user, const char* section, const char* name, const
 
     conf_t *conf = (conf_t *)user;
 
-    conf_get(usr_gbid);
     conf_get(srv_gbid);
     conf_get(rtp_port);
-    conf_get(sip_port);
+    conf_get(srv_sip_port);
     conf_get(passwd);
     conf_get(expiry);
     conf_get(timeout);
     conf_get(ua);
     return 0;
+}
+
+const char* get_ip(void)
+{
+    struct ifaddrs *ifaddr, *ifa;
+    int family, s;
+    char *host = NULL;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        return NULL;
+    }
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+        family = ifa->ifa_addr->sa_family;
+        if (!strcmp(ifa->ifa_name, "lo"))
+            continue;
+        if (!strcmp(ifa->ifa_name, "lo0"))
+            continue;
+        if (family == AF_INET) {
+            if ((host = (char*)malloc(NI_MAXHOST)) == NULL)
+                return NULL;
+            s = getnameinfo(ifa->ifa_addr,
+                    (family == AF_INET) ? sizeof(struct sockaddr_in) :
+                    sizeof(struct sockaddr_in6),
+                    host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+            if (s != 0) {
+                return NULL;
+            }
+            freeifaddrs(ifaddr);
+            return host;
+        }
+    }
+    return NULL;
 }
 
 int main(int argc, char *argv[])
@@ -32,14 +66,20 @@ int main(int argc, char *argv[])
         LOGE("load conf %s error %d %s", CONF_FILE, ret, strerror(errno));
         exit(0);
     }
+    const char *ip = get_ip();
+    if (!ip) {
+        LOGE("get ip error");
+        exit(0);
+    }
+    conf.srv_ip = strdup(ip);
     LOGI("srv_gbid : %s", conf.srv_gbid);
-    LOGI("usr_gbid : %s", conf.usr_gbid);
     LOGI("ua : %s", conf.ua);
     LOGI("rtp_port : %s", conf.rtp_port);
-    LOGI("sip_port : %s", conf.sip_port);
+    LOGI("srv_sip_port : %s", conf.srv_sip_port);
     LOGI("passwd : %s", conf.passwd);
     LOGI("expiry : %s", conf.expiry);
     LOGI("timeout : %s", conf.timeout);
+    LOGI("srv_ip: %s", conf.srv_ip);
     ret = sip_init(&conf);
     if (ret < 0) {
         exit(0);

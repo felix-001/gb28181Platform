@@ -1,4 +1,5 @@
 #include "public.h"
+#include "conf.h"
 #include "osip2/osip_mt.h"
 #include "eXosip2/eXosip.h"
 
@@ -6,6 +7,10 @@ typedef int (*evt_handler_t)(eXosip_event_t *evtp);
 
 typedef struct {
     struct eXosip_t *eXo_ctx;
+    conf_t *conf;
+    char *usr_gbid;
+    char *usr_host;
+    char *usr_port;
     int run;
 } gb_ctx_t;
 
@@ -17,7 +22,7 @@ int send_ack_200(eXosip_event_t *evtp)
     struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
     osip_message_t * msg = NULL;
 
-    ret = eXosip_message_build_answer (eXo_ctx, evtp->tid, 200, &msg);
+    ret = eXosip_message_build_answer(eXo_ctx, evtp->tid, 200, &msg);
     if (ret || !msg) {
         LOGE("build answer for register error ret:%d", ret);
         return -1;
@@ -28,14 +33,64 @@ int send_ack_200(eXosip_event_t *evtp)
     return 0;
 }
 
+static int send_catalog_req()
+{
+    char body[1024] = {0};
+    char from[1024] = {0};
+    char to[1024] = {0};
+    osip_message_t *msg;
+    struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
+    conf_t *conf = ctx->conf;
+
+    sprintf(from, "sip:%s@%s:%d", conf->srv_gbid, conf->srv_ip, atoi(conf->srv_sip_port));
+    sprintf(to, "sip:%s@%s:%d", ctx->usr_gbid, ctx->usr_host, atoi(ctx->usr_port));
+
+    sprintf(body, "<?xml version=\"1.0\"?>\r\n"
+                  "<Query>\r\n"
+                  "<CmdType>Catalog</CmdType>\r\n"
+                  "<SN>1</SN>\r\n"
+                  "<DeviceID>%s</DeviceID>\r\n"
+                  "</Query>\r\n", ctx->usr_gbid);
+
+    eXosip_message_build_request(eXo_ctx, &msg, "MESSAGE", to, from, NULL);
+    osip_message_set_body(msg, body, strlen(body));
+    osip_message_set_content_type(msg, "Application/MANSCDP+xml");
+    eXosip_message_send_request(eXo_ctx, msg);	
+    return 0;
+}
+
 int register_handler(eXosip_event_t *evtp)
 {
-    return send_ack_200(evtp);
+    osip_contact_t *contact;
+
+    int ret = osip_message_get_contact(evtp->request, 0, &contact);
+    if (ret < 0) {
+        LOGE("get contact from message error: %d", ret);
+        return ret;
+    }
+    osip_uri_t *uri;
+    uri = osip_contact_get_url(contact);
+    if (!uri || !uri->username || !uri->host || !uri->port) {
+        LOGE("get url from contact error");
+        return -1;
+    }
+    ctx->usr_gbid = strdup(uri->username);
+    ctx->usr_host = strdup(uri->host);
+    ctx->usr_port = strdup(uri->port);
+    ret = send_ack_200(evtp);
+    if (ret < 0)
+        return ret;
+    return send_catalog_req();
 }
 
 int message_handler(eXosip_event_t *evtp)
 {
     return send_ack_200(evtp);
+}
+
+static int send_invite_req()
+{
+    return 0;
 }
 
 static int evt_handler(eXosip_event_t *evtp)
@@ -51,6 +106,7 @@ static int evt_handler(eXosip_event_t *evtp)
         }
         break;
     default:
+        LOGI("recv evt: %d", evtp->type);
         break;
     }
 
@@ -83,6 +139,7 @@ static void * sip_evtloop_thread(void *arg)
 int sip_init(conf_t *conf)
 {
     ctx = (gb_ctx_t *)malloc(sizeof(gb_ctx_t));
+    ctx->conf = conf;
     struct eXosip_t *eXo_ctx = eXosip_malloc();
     if (!eXo_ctx) {
         LOGE("new uas context error");
@@ -92,7 +149,7 @@ int sip_init(conf_t *conf)
         LOGE("exosip init error");
         goto err;
 	}
-    if (eXosip_listen_addr(eXo_ctx, IPPROTO_UDP, NULL, atoi(conf->sip_port), AF_INET, 0)) {
+    if (eXosip_listen_addr(eXo_ctx, IPPROTO_UDP, NULL, atoi(conf->srv_sip_port), AF_INET, 0)) {
         LOGE("listen error");
         goto err;
     }
