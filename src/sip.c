@@ -9,7 +9,7 @@ static void * sip_evtloop_thread(void *arg)
     return NULL;
 }
 
-int sip_init(char *passwd, char *gb_id, char *user_agent, int port)
+int sip_init(conf_t *conf)
 {
     ctx = eXosip_malloc();
     if (!ctx) {
@@ -20,12 +20,12 @@ int sip_init(char *passwd, char *gb_id, char *user_agent, int port)
         LOGE("exosip init error");
         goto err;
 	}
-    if (eXosip_listen_addr(ctx, IPPROTO_UDP, NULL, port, AF_INET, 0)) {
+    if (eXosip_listen_addr(ctx, IPPROTO_UDP, NULL, atoi(conf->sip_port), AF_INET, 0)) {
         LOGE("listen error");
         goto err;
     }
-    eXosip_set_user_agent(ctx, user_agent);
-    if (eXosip_add_authentication_info(ctx, gb_id, gb_id, passwd, NULL, NULL)){
+    eXosip_set_user_agent(ctx, conf->ua);
+    if (eXosip_add_authentication_info(ctx, conf->srv_gbid, conf->srv_gbid, conf->passwd, NULL, NULL)){
         LOGE("add authentication info error");
         goto err;
     }

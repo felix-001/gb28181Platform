@@ -20,3 +20,14 @@
 #include <ifaddrs.h>
 #include <stdbool.h>
 #include "log.h"
+
+typedef struct {
+    char *usr_gbid;
+    char *srv_gbid;
+    char *ua;
+    char *rtp_port;
+    char *sip_port;
+    char *passwd;
+    char *expiry;
+    char *timeout;
+} conf_t;
