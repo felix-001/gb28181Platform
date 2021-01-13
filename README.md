@@ -7,6 +7,6 @@
 - [x] Register
 - [x] KeepAlive
 - [x] Catalog
-- [ ] Invite
+- [x] Invite
 - [ ] display
 - [ ] sdp

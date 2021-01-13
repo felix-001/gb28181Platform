@@ -83,6 +83,11 @@ int register_handler(eXosip_event_t *evtp)
     return send_catalog_req();
 }
 
+static int gen_sdp()
+{
+    return 0;
+}
+
 int message_handler(eXosip_event_t *evtp)
 {
     return send_ack_200(evtp);
