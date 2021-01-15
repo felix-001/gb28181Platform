@@ -72,14 +72,14 @@ int main(int argc, char *argv[])
         exit(0);
     }
     conf.srv_ip = strdup(ip);
-    LOGI("srv_gbid : %s", conf.srv_gbid);
-    LOGI("ua : %s", conf.ua);
-    LOGI("rtp_port : %s", conf.rtp_port);
-    LOGI("srv_sip_port : %s", conf.srv_sip_port);
-    LOGI("passwd : %s", conf.passwd);
-    LOGI("expiry : %s", conf.expiry);
-    LOGI("timeout : %s", conf.timeout);
-    LOGI("srv_ip: %s", conf.srv_ip);
+    LOGI("srv_gbid\t: %s", conf.srv_gbid);
+    LOGI("ua\t\t: %s", conf.ua);
+    LOGI("rtp_port\t: %s", conf.rtp_port);
+    LOGI("srv_sip_port\t: %s", conf.srv_sip_port);
+    LOGI("passwd\t: %s", conf.passwd);
+    LOGI("expiry\t: %s", conf.expiry);
+    LOGI("timeout\t: %s", conf.timeout);
+    LOGI("srv_ip\t: %s", conf.srv_ip);
     ret = sip_init(&conf);
     if (ret < 0) {
         exit(0);
