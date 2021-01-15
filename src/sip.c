@@ -100,6 +100,7 @@ static int send_invite_req()
 
 static int evt_handler(eXosip_event_t *evtp)
 {
+    LOGI("recv evt: %d", evtp->type);
     switch (evtp->type) {
     case EXOSIP_MESSAGE_NEW:
         if (MSG_IS_REGISTER(evtp->request)) {
@@ -111,7 +112,6 @@ static int evt_handler(eXosip_event_t *evtp)
         }
         break;
     default:
-        LOGI("recv evt: %d", evtp->type);
         break;
     }
 

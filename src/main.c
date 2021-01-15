@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
         LOGE("get ip error");
         exit(0);
     }
-    conf.srv_ip = strdup(ip);
+    conf.srv_ip = strdup("100.100.4.11");
     LOGI("srv_gbid\t: %s", conf.srv_gbid);
     LOGI("ua\t\t: %s", conf.ua);
     LOGI("rtp_port\t: %s", conf.rtp_port);
