@@ -5,7 +5,7 @@
 - ps流解析
     - [ ] rtp over udp
     - [ ] rtp over tcp
-    - [ ] rtp解析
+    - [x] rtp解析
     - [ ] jitter buffer
 - [ ] ui
 - [x] Register
