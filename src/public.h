@@ -30,4 +30,5 @@ typedef struct {
     char *expiry;
     char *timeout;
     char *srv_ip;
+    char *dbg;
 } conf_t;

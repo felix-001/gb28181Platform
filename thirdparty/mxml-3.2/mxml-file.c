@@ -75,6 +75,7 @@ static int		mxml_write_name(const char *s, void *p, _mxml_putc_cb_t putc_cb);
 static int		mxml_write_node(mxml_node_t *node, void *p, mxml_save_cb_t cb, int col, _mxml_putc_cb_t putc_cb, _mxml_global_t *global);
 static int		mxml_write_string(const char *s, void *p, _mxml_putc_cb_t putc_cb);
 static int		mxml_write_ws(mxml_node_t *node, void *p, mxml_save_cb_t cb, int ws, int col, _mxml_putc_cb_t putc_cb);
+static int mxml_getc(void *p, int *encoding);
 
 
 /*
@@ -177,7 +178,7 @@ mxmlLoadString(mxml_node_t    *top,	/* I - Top node */
   * Read the XML data...
   */
 
-  return (mxml_load_data(top, (void *)&s, cb, mxml_string_getc, MXML_NO_CALLBACK,
+  return (mxml_load_data(top, (void *)&s, cb, mxml_getc, MXML_NO_CALLBACK,
                          NULL));
 }
 
@@ -2402,6 +2403,14 @@ mxml_parse_element(
   free(value);
 
   return (EOF);
+}
+
+static int mxml_getc(void *p, int *encoding)
+{
+	const char **s = (const char **)p;
+	if (!**s)
+		return EOF;
+	return *(*s)++;
 }
 
 

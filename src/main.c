@@ -18,6 +18,7 @@ static int conf_handler(void* user, const char* section, const char* name, const
     conf_get(expiry);
     conf_get(timeout);
     conf_get(ua);
+    conf_get(dbg);
     return 0;
 }
 
@@ -80,6 +81,7 @@ int main(int argc, char *argv[])
     LOGI("expiry\t: %s", conf.expiry);
     LOGI("timeout\t: %s", conf.timeout);
     LOGI("srv_ip\t: %s", conf.srv_ip);
+    LOGI("dbg\t\t: %s", conf.dbg);
     ret = sip_init(&conf);
     if (ret < 0) {
         exit(0);

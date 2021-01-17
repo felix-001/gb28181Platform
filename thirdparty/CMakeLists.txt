@@ -19,3 +19,13 @@ ExternalProject_Add(
     INSTALL_COMMAND make install
     BUILD_IN_SOURCE 1
 )
+
+
+ExternalProject_Add(
+    mxml-3.2
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mxml-3.2
+    CONFIGURE_COMMAND ./configure  --prefix=${PROJECT_BINARY_DIR}/thirdparty --enable-debug=yes
+    BUILD_COMMAND make
+    INSTALL_COMMAND make install
+    BUILD_IN_SOURCE 1
+)

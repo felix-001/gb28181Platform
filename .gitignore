@@ -31,3 +31,6 @@ config.status
 sip_monitor
 sip_reg
 .vscode
+testmxml
+config.h
+libmxml.a

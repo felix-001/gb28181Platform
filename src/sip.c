@@ -2,6 +2,7 @@
 #include "conf.h"
 #include "osip2/osip_mt.h"
 #include "eXosip2/eXosip.h"
+#include "xml.h"
 
 typedef int (*evt_handler_t)(eXosip_event_t *evtp); 
 
@@ -16,11 +17,38 @@ typedef struct {
 
 static gb_ctx_t *ctx;
 
+typedef enum {
+    SIP_OUT,
+    SIP_IN,
+} sip_dierction_t;
+
+typedef enum {
+    SIP_CMD_TYPE_KEEPALIVE,
+    SIP_CMD_TYPE_CATALOG,
+    SIP_CMD_TYPE_ALARM,
+} sip_cmdtype_t;
+
+static dump_sip_message(osip_message_t *msg, sip_dierction_t direction)
+{
+    char *s;
+    conf_t *conf = ctx->conf;
+
+    if (!strcmp(conf->dbg, "ON")) {
+        osip_message_to_str(msg, &s, NULL);
+        if (direction == SIP_OUT) {
+            LOGI("[S==>C]:\n%s", s);
+        } else {
+            LOGI("[C==>S]:\n%s", s);
+        }
+    }
+}
+
 int send_ack_200(eXosip_event_t *evtp)
 {
     int ret = 0 ;
     struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
     osip_message_t * msg = NULL;
+    conf_t *conf = ctx->conf;
 
     ret = eXosip_message_build_answer(eXo_ctx, evtp->tid, 200, &msg);
     if (ret || !msg) {
@@ -29,6 +57,7 @@ int send_ack_200(eXosip_event_t *evtp)
     }
     eXosip_lock(eXo_ctx);
     eXosip_message_send_answer(eXo_ctx, evtp->tid, 200, msg);
+    dump_sip_message(msg, SIP_OUT);
     eXosip_unlock(eXo_ctx);
     return 0;
 }
@@ -56,12 +85,15 @@ static int send_catalog_req()
     osip_message_set_body(msg, body, strlen(body));
     osip_message_set_content_type(msg, "Application/MANSCDP+xml");
     eXosip_message_send_request(eXo_ctx, msg);	
+    dump_sip_message(msg, SIP_OUT);
     return 0;
 }
 
 int register_handler(eXosip_event_t *evtp)
 {
     osip_contact_t *contact;
+
+    LOGI("got register");
 
     int ret = osip_message_get_contact(evtp->request, 0, &contact);
     if (ret < 0) {
@@ -88,8 +120,40 @@ static int gen_sdp()
     return 0;
 }
 
+static int get_cmdtype(eXosip_event_t *evtp, sip_cmdtype_t *cmdtype)
+{
+    char *body_str = NULL;
+    osip_body_t *body;
+    char *value = NULL;
+    int ret = 0;
+    size_t len = 0;
+
+    ret = osip_message_get_body(evtp->request, 0, &body);
+    if (ret < 0) {
+        LOGE("get body error %d", ret);
+        return -1;
+    }
+    osip_body_to_str(body, &body_str, &len);
+    body_str = (char *)realloc(body_str, len+1);
+    body_str[len] = '\0';
+    xml_get_item(body_str, "Notify/CmdType", &value);
+    LOGI("cmd: %s", value);
+    free(body_str);
+    if (!strcmp(value, "Keepalive")) {
+        *cmdtype = SIP_CMD_TYPE_KEEPALIVE;
+    } else if (!strcmp(value, "Alarm")) {
+        *cmdtype = SIP_CMD_TYPE_ALARM;
+    } else if (!strcmp(value, "Catalog")) {
+        *cmdtype = SIP_CMD_TYPE_CATALOG;
+    }
+    return 0;
+}
+
 int message_handler(eXosip_event_t *evtp)
 {
+    int cmdtype = 0;
+
+    get_cmdtype(evtp, &cmdtype);
     return send_ack_200(evtp);
 }
 
@@ -100,7 +164,9 @@ static int send_invite_req()
 
 static int evt_handler(eXosip_event_t *evtp)
 {
-    LOGI("recv evt: %d", evtp->type);
+    conf_t *conf = ctx->conf;
+
+    dump_sip_message(evtp->request, SIP_IN);
     switch (evtp->type) {
     case EXOSIP_MESSAGE_NEW:
         if (MSG_IS_REGISTER(evtp->request)) {
@@ -112,6 +178,7 @@ static int evt_handler(eXosip_event_t *evtp)
         }
         break;
     default:
+        LOGI("recv evt: %d", evtp->type);
         break;
     }
 
@@ -124,6 +191,7 @@ static void * sip_evtloop_thread(void *arg)
     #define SLEEP 100000
 
     struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
+    LOGI("enter event loop");
 
     while(ctx->run) {
         osip_message_t *msg = NULL;
@@ -164,6 +232,7 @@ int sip_init(conf_t *conf)
         goto err;
     }
     ctx->eXo_ctx = eXo_ctx;
+    ctx->run = 1;
     pthread_t tid;
     pthread_create(&tid, NULL, sip_evtloop_thread, NULL);
     return 0;
