@@ -13,5 +13,5 @@
 - [x] Catalog
 - [x] Invite
 - [ ] display
-- [ ] sdp
+- [x] sdp
 - [x] xml
