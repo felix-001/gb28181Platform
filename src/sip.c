@@ -57,7 +57,7 @@ int send_ack_200(eXosip_event_t *evtp)
     }
     eXosip_lock(eXo_ctx);
     eXosip_message_send_answer(eXo_ctx, evtp->tid, 200, msg);
-    dump_sip_message(msg, SIP_OUT);
+    //dump_sip_message(msg, SIP_OUT);
     eXosip_unlock(eXo_ctx);
     return 0;
 }
@@ -136,10 +136,12 @@ static int get_cmdtype(eXosip_event_t *evtp, sip_cmdtype_t *cmdtype)
     osip_body_to_str(body, &body_str, &len);
     body_str = (char *)realloc(body_str, len+1);
     body_str[len] = '\0';
-    xml_get_item(body_str, "Notify/CmdType", &value);
-    LOGI("cmd: %s", value);
+    ret = xml_get_item(body_str, "Notify/CmdType", &value);
     free(body_str);
+    if (ret < 0)
+        return ret;
     if (!strcmp(value, "Keepalive")) {
+        LOGI("cmd: %s", value);
         *cmdtype = SIP_CMD_TYPE_KEEPALIVE;
     } else if (!strcmp(value, "Alarm")) {
         *cmdtype = SIP_CMD_TYPE_ALARM;
@@ -154,6 +156,9 @@ int message_handler(eXosip_event_t *evtp)
     int cmdtype = 0;
 
     get_cmdtype(evtp, &cmdtype);
+    if (cmdtype != SIP_CMD_TYPE_ALARM && cmdtype != SIP_CMD_TYPE_KEEPALIVE) {
+        dump_sip_message(evtp->request, SIP_IN);
+    }
     return send_ack_200(evtp);
 }
 
@@ -166,7 +171,6 @@ static int evt_handler(eXosip_event_t *evtp)
 {
     conf_t *conf = ctx->conf;
 
-    dump_sip_message(evtp->request, SIP_IN);
     switch (evtp->type) {
     case EXOSIP_MESSAGE_NEW:
         if (MSG_IS_REGISTER(evtp->request)) {
@@ -178,6 +182,7 @@ static int evt_handler(eXosip_event_t *evtp)
         }
         break;
     default:
+        dump_sip_message(evtp->request, SIP_IN);
         LOGI("recv evt: %d", evtp->type);
         break;
     }

@@ -1,3 +1,6 @@
+#ifndef PUBLIC_H
+#define PUBLIC_H
+
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -32,3 +35,5 @@ typedef struct {
     char *srv_ip;
     char *dbg;
 } conf_t;
+
+#endif
