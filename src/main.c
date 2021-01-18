@@ -82,10 +82,10 @@ int main(int argc, char *argv[])
     LOGI("timeout\t: %s", conf.timeout);
     LOGI("srv_ip\t: %s", conf.srv_ip);
     LOGI("dbg\t\t: %s", conf.dbg);
-    ret = sip_init(&conf);
-    if (ret < 0) {
+    sip_ctx_t *ctx = new_sip_context(&conf);
+    if (!ctx)
         exit(0);
-    }
+    sip_run(ctx);
     for(;;) {
         sleep(3);
     }
