@@ -3,10 +3,8 @@
 - [x] 日志
 - [x] 配置文件
 - ps流解析
-    - [ ] rtp over udp
-    - [ ] rtp over tcp
+    - [x] rtp over tcp
     - [x] rtp解析
-    - [ ] jitter buffer
 - [ ] ui
 - [x] Register
 - [x] KeepAlive
