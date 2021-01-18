@@ -35,5 +35,6 @@ typedef struct {
     char *srv_ip;
     char *dbg;
 } conf_t;
+#define arrsz(arr) (sizeof(arr)/sizeof(arr[0]))
 
 #endif
