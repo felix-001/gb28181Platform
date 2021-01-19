@@ -19,6 +19,7 @@ static int conf_handler(void* user, const char* section, const char* name, const
     conf_get(timeout);
     conf_get(ua);
     conf_get(dbg);
+    conf_get(auto_invite);
     return 0;
 }
 
@@ -82,6 +83,7 @@ int main(int argc, char *argv[])
     LOGI("timeout\t: %s", conf.timeout);
     LOGI("srv_ip\t: %s", conf.srv_ip);
     LOGI("dbg\t\t: %s", conf.dbg);
+    LOGI("auto_invite\t: %s", conf.auto_invite);
     sip_ctx_t *ctx = new_sip_context(&conf);
     if (!ctx)
         exit(0);

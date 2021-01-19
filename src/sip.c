@@ -4,6 +4,7 @@
 #include "eXosip2/eXosip.h"
 #include "xml.h"
 #include "sip.h"
+#include "sdp.h"
 
 typedef int (*evt_handler_t)(eXosip_event_t *evtp); 
 
@@ -15,6 +16,7 @@ struct _sip_ctx_t {
     char *usr_port;
     pthread_t tid;
     int run;
+    int callid;
 };
 
 typedef enum {
@@ -33,7 +35,7 @@ static void dump_sip_message(sip_ctx_t *ctx, osip_message_t *msg, sip_dierction_
     char *s;
     conf_t *conf = ctx->conf;
 
-    if (!strcmp(conf->dbg, "ON")) {
+    if (!strcmp(conf->dbg, "on")) {
         osip_message_to_str(msg, &s, NULL);
         if (direction == SIP_OUT) {
             LOGI("[S==>C]:\n%s", s);
@@ -131,33 +133,65 @@ static int get_cmdtype(eXosip_event_t *evtp, sip_cmdtype_t *cmdtype)
     body_str = (char *)realloc(body_str, len+1);
     body_str[len] = '\0';
     ret = xml_get_item(body_str, "Notify/CmdType", &value);
+    if (ret < 0) {
+        ret = xml_get_item(body_str, "Response/CmdType", &value);
+        if (ret < 0)
+            return ret;
+    }
     free(body_str);
-    if (ret < 0)
-        return ret;
     if (!strcmp(value, "Keepalive")) {
         LOGI("cmd: %s", value);
         *cmdtype = SIP_CMD_TYPE_KEEPALIVE;
     } else if (!strcmp(value, "Alarm")) {
         *cmdtype = SIP_CMD_TYPE_ALARM;
     } else if (!strcmp(value, "Catalog")) {
+        LOGI("cmd: %s", value);
         *cmdtype = SIP_CMD_TYPE_CATALOG;
     }
     return 0;
 }
 
+static int send_invite_req(sip_ctx_t *ctx)
+{
+    conf_t *conf = ctx->conf;
+    struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
+    char from[1024] = {0};
+    char to[1024] = {0};
+    char expires[1024] = { 0 };
+    osip_message_t *msg = NULL;
+
+    sprintf(from, "sip:%s@%s:%d", conf->srv_gbid, conf->srv_ip, atoi(conf->srv_sip_port));
+    sprintf(to, "sip:%s@%s:%d", ctx->usr_gbid, ctx->usr_host, atoi(ctx->usr_port));
+    eXosip_call_build_initial_invite(eXo_ctx, &msg, to, from, NULL, NULL);
+    char *sdp = NULL;
+    int ret = gen_sdp(ctx->conf, &sdp);
+    if (ret < 0)
+        return ret;
+    osip_message_set_body(msg, sdp, strlen(sdp));
+	osip_message_set_content_type(msg, "application/sdp");
+	snprintf(expires, sizeof(expires)-1, "%s;refresher=uac", conf->timeout);
+	osip_message_set_header(msg, "Session-Expires", expires);
+	osip_message_set_supported(msg, "timer");
+	ctx->callid = eXosip_call_send_initial_invite(eXo_ctx, msg);
+    dump_sip_message(ctx, msg, SIP_OUT);
+    return 0;
+}
+
+
 int message_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
 {
-    sip_cmdtype_t cmdtype = 0;
+    sip_cmdtype_t cmdtype = -1;
+    conf_t *conf = ctx->conf;
 
     get_cmdtype(evtp, &cmdtype);
     if (cmdtype != SIP_CMD_TYPE_ALARM && cmdtype != SIP_CMD_TYPE_KEEPALIVE) {
         dump_sip_message(ctx, evtp->request, SIP_IN);
     }
-    return send_ack_200(ctx, evtp);
-}
+    send_ack_200(ctx, evtp);
+    if (!strcmp(conf->auto_invite, "on") && cmdtype == SIP_CMD_TYPE_CATALOG) {
+        send_invite_req(ctx);
+    }
 
-static int send_invite_req()
-{
     return 0;
 }
 
@@ -172,6 +206,18 @@ static int evt_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
         } else {
             LOGI("evt type: %d", evtp->type);
         }
+        break;
+    case EXOSIP_MESSAGE_REQUESTFAILURE:
+        LOGI("%s", evtp->textinfo);
+        if (evtp->ack)
+            dump_sip_message(ctx, evtp->ack, SIP_IN);
+        else if (evtp->response)
+            dump_sip_message(ctx, evtp->response, SIP_IN);
+        else if (evtp->request)
+            dump_sip_message(ctx, evtp->request, SIP_OUT);
+        break;
+    case EXOSIP_MESSAGE_ANSWERED:
+        dump_sip_message(ctx, evtp->response, SIP_IN);
         break;
     default:
         dump_sip_message(ctx, evtp->request, SIP_IN);
