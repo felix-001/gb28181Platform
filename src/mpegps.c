@@ -1,5 +1,6 @@
 #include "public.h"
 #include "mpegps.h"
+#include "conf.h"
 
 typedef struct {
     uint8_t es_id;
@@ -14,9 +15,12 @@ struct _ps_decoder {
     stream_info_t audio_stream;
     int64_t video_pts;
     int64_t audio_pts;
+    conf_t *conf;
+    FILE *vfp;
 };
 
-ps_decoder_t *new_ps_decoder()
+#define VIDEO_FILE "./gb281_video.h264"
+ps_decoder_t *new_ps_decoder(conf_t *conf)
 {
     ps_decoder_t * decoder = (ps_decoder_t *)malloc(sizeof(ps_decoder_t));
     
@@ -25,6 +29,13 @@ ps_decoder_t *new_ps_decoder()
         return NULL;
     }
     memset(decoder, 0, sizeof(*decoder));
+    decoder->conf = conf;
+    if (!strcmp(conf->dump_video_file, "on")) {
+        decoder->vfp = fopen(VIDEO_FILE, "w");
+        if (!decoder->vfp) {
+            LOGE("open file %s error", VIDEO_FILE);
+        }
+    }
 
     return decoder;
 }
@@ -185,6 +196,14 @@ int ps_decode(ps_decoder_t *decoder, uint8_t *ps_buf, int ps_len, ps_pkt_t *ps_p
             uint32_t pack_len = 0;
             handlers[idx](decoder, &pack_len);
             decoder->ps_buf += pack_len;
+        }
+    }
+
+    if (!strcmp(decoder->conf->dump_video_file, "on") 
+        && decoder->video_stream.es
+        && decoder->vfp) {
+        if (fwrite(decoder->video_stream.es, decoder->video_stream.es_len, 1, decoder->vfp) != 1) {
+            LOGE("write video to file error");
         }
     }
 

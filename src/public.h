@@ -34,6 +34,7 @@ typedef struct {
     char *timeout;
     char *srv_ip;
     char *dbg;
+    char *dump_video_file;
 } conf_t;
 #define arrsz(arr) (sizeof(arr)/sizeof(arr[0]))
 

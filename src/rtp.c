@@ -108,7 +108,7 @@ rtp_ctx_t *new_rtp_context(conf_t *conf, uint32_t ssrc)
     ctx->conf = conf;
     ctx->run = 1;
     ctx->ssrc = ssrc;
-    ctx->ps_decoder = new_ps_decoder();
+    ctx->ps_decoder = new_ps_decoder(conf);
     if (!ctx->ps_decoder)
         return NULL;
 

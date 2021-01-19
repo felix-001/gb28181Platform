@@ -11,7 +11,7 @@ typedef struct {
     uint8_t es_type;
 } ps_pkt_t;
 
-extern ps_decoder_t *new_ps_decoder();
+extern ps_decoder_t *new_ps_decoder(conf_t *conf);
 extern int ps_decode(ps_decoder_t *decoder, uint8_t *ps_buf, int ps_len, ps_pkt_t *ps_pkt);
 
 #endif
