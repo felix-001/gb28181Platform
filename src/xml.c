@@ -18,7 +18,6 @@ int xml_get_item(char *xml, char *path, char **value)
     }
     node = mxmlFindPath(root, path);
     if (!node) {
-        LOGE("item %s not found", path);
         return -1;
     }
     const char *text = mxmlGetText(node, NULL);

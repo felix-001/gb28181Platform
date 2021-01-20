@@ -20,6 +20,8 @@ static int conf_handler(void* user, const char* section, const char* name, const
     conf_get(ua);
     conf_get(dbg);
     conf_get(auto_invite);
+    conf_get(ssrc);
+    conf_get(dump_video_file);
     return 0;
 }
 
@@ -84,6 +86,8 @@ int main(int argc, char *argv[])
     LOGI("srv_ip\t: %s", conf.srv_ip);
     LOGI("dbg\t\t: %s", conf.dbg);
     LOGI("auto_invite\t: %s", conf.auto_invite);
+    LOGI("ssrc\t\t: %s", conf.ssrc);
+    LOGI("dump_videl\t: %s", conf.dump_video_file);
     sip_ctx_t *ctx = new_sip_context(&conf);
     if (!ctx)
         exit(0);

@@ -7,7 +7,8 @@
     - [x] rtp解析
     - [x] ps包解析
 - [ ] ui
-- [x] Register
+- [x] Register 
+  - [x] expires为0是去注册
 - [x] KeepAlive
 - [x] Catalog
 - [x] Invite
@@ -20,3 +21,8 @@
 - [ ] rtp流解析后存储.h264,ffplay可以播放 
 - [ ] sdl能够播放
 - [ ] 追加ui
+
+
+# issue
+- [ ] Contact: <sip:31011500002000000001@999.999.999.999:99999>
+

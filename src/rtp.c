@@ -55,7 +55,7 @@ static void *rtp_recv_thread(void *arg)
     servaddr.sin_port = htons(atoi(conf->rtp_port));
     bind(listenfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
     listen(listenfd, 10);
-    LOGI("listen on %s:%s", conf->srv_ip, conf->rtp_port);
+    LOGI("rtp srv listen on %s:%s", conf->srv_ip, conf->rtp_port);
     connfd = accept(listenfd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
     LOGI("got connection from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 

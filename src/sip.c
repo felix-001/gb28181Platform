@@ -5,6 +5,7 @@
 #include "xml.h"
 #include "sip.h"
 #include "sdp.h"
+#include "rtp.h"
 
 typedef int (*evt_handler_t)(eXosip_event_t *evtp); 
 
@@ -17,6 +18,7 @@ struct _sip_ctx_t {
     pthread_t tid;
     int run;
     int callid;
+    rtp_ctx_t *rtp_ctx;
 };
 
 typedef enum {
@@ -72,6 +74,7 @@ static int send_catalog_req(sip_ctx_t *ctx)
     struct eXosip_t *eXo_ctx = ctx->eXo_ctx;
     conf_t *conf = ctx->conf;
 
+    LOGI("send catalog req to client");
     sprintf(from, "sip:%s@%s:%d", conf->srv_gbid, conf->srv_ip, atoi(conf->srv_sip_port));
     sprintf(to, "sip:%s@%s:%d", ctx->usr_gbid, ctx->usr_host, atoi(ctx->usr_port));
 
@@ -86,15 +89,13 @@ static int send_catalog_req(sip_ctx_t *ctx)
     osip_message_set_body(msg, body, strlen(body));
     osip_message_set_content_type(msg, "Application/MANSCDP+xml");
     eXosip_message_send_request(eXo_ctx, msg);	
-    dump_sip_message(ctx, msg, SIP_OUT);
+    //dump_sip_message(ctx, msg, SIP_OUT);
     return 0;
 }
 
 int register_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
 {
     osip_contact_t *contact;
-
-    LOGI("got register");
 
     int ret = osip_message_get_contact(evtp->request, 0, &contact);
     if (ret < 0) {
@@ -110,10 +111,19 @@ int register_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
     ctx->usr_gbid = strdup(uri->username);
     ctx->usr_host = strdup(uri->host);
     ctx->usr_port = strdup(uri->port);
+    LOGI("got register from : %s %s:%s", ctx->usr_gbid, ctx->usr_host, ctx->usr_port);
     ret = send_ack_200(ctx, evtp);
     if (ret < 0)
         return ret;
-    return send_catalog_req(ctx);
+
+    osip_header_t *expires = NULL;
+    osip_message_get_expires(evtp->request, 0, &expires);
+    LOGI("expires:%s", expires->hvalue);
+    if (expires && atoi(expires->hvalue) > 0) {
+        return send_catalog_req(ctx);
+    }
+
+    return 0;
 }
 
 static int get_cmdtype(eXosip_event_t *evtp, sip_cmdtype_t *cmdtype)
@@ -135,17 +145,19 @@ static int get_cmdtype(eXosip_event_t *evtp, sip_cmdtype_t *cmdtype)
     ret = xml_get_item(body_str, "Notify/CmdType", &value);
     if (ret < 0) {
         ret = xml_get_item(body_str, "Response/CmdType", &value);
-        if (ret < 0)
+        if (ret < 0) {
+            LOGE("get xml item error");
             return ret;
+        }
     }
     free(body_str);
     if (!strcmp(value, "Keepalive")) {
-        LOGI("cmd: %s", value);
+        LOGI("got req cmd: %s", value);
         *cmdtype = SIP_CMD_TYPE_KEEPALIVE;
     } else if (!strcmp(value, "Alarm")) {
         *cmdtype = SIP_CMD_TYPE_ALARM;
     } else if (!strcmp(value, "Catalog")) {
-        LOGI("cmd: %s", value);
+        LOGI("got req cmd: %s", value);
         *cmdtype = SIP_CMD_TYPE_CATALOG;
     }
     return 0;
@@ -160,6 +172,7 @@ static int send_invite_req(sip_ctx_t *ctx)
     char expires[1024] = { 0 };
     osip_message_t *msg = NULL;
 
+    LOGI("send invite req to client");
     sprintf(from, "sip:%s@%s:%d", conf->srv_gbid, conf->srv_ip, atoi(conf->srv_sip_port));
     sprintf(to, "sip:%s@%s:%d", ctx->usr_gbid, ctx->usr_host, atoi(ctx->usr_port));
     eXosip_call_build_initial_invite(eXo_ctx, &msg, to, from, NULL, NULL);
@@ -173,7 +186,7 @@ static int send_invite_req(sip_ctx_t *ctx)
 	osip_message_set_header(msg, "Session-Expires", expires);
 	osip_message_set_supported(msg, "timer");
 	ctx->callid = eXosip_call_send_initial_invite(eXo_ctx, msg);
-    dump_sip_message(ctx, msg, SIP_OUT);
+    //dump_sip_message(ctx, msg, SIP_OUT);
     return 0;
 }
 
@@ -184,7 +197,7 @@ int message_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
     conf_t *conf = ctx->conf;
 
     get_cmdtype(evtp, &cmdtype);
-    if (cmdtype != SIP_CMD_TYPE_ALARM && cmdtype != SIP_CMD_TYPE_KEEPALIVE) {
+    if (cmdtype != SIP_CMD_TYPE_ALARM && cmdtype != SIP_CMD_TYPE_KEEPALIVE && cmdtype != SIP_CMD_TYPE_CATALOG) {
         dump_sip_message(ctx, evtp->request, SIP_IN);
     }
     send_ack_200(ctx, evtp);
@@ -192,6 +205,16 @@ int message_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
         send_invite_req(ctx);
     }
 
+    return 0;
+}
+
+static int call_send_ack(sip_ctx_t *ctx, eXosip_event_t *evtp)
+{
+    osip_message_t* ack = NULL;
+    LOGI("send invite ack to client");
+    eXosip_call_build_ack(ctx->eXo_ctx, evtp->did, &ack);  
+    eXosip_call_send_ack(ctx->eXo_ctx, evtp->did, ack);
+    //dump_sip_message(ctx, ack, SIP_OUT);
     return 0;
 }
 
@@ -217,11 +240,37 @@ static int evt_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
             dump_sip_message(ctx, evtp->request, SIP_OUT);
         break;
     case EXOSIP_MESSAGE_ANSWERED:
-        dump_sip_message(ctx, evtp->response, SIP_IN);
+        LOGI("%s", evtp->textinfo);
+        //dump_sip_message(ctx, evtp->response, SIP_IN);
+        break;
+    case EXOSIP_CALL_ANSWERED:
+        LOGI("invite ok");
+        LOGI("%s", evtp->textinfo);
+        //dump_sip_message(ctx, evtp->response, SIP_IN);
+        call_send_ack(ctx, evtp);
+        rtp_srv_run(ctx->rtp_ctx);
+        break;
+    case EXOSIP_CALL_MESSAGE_ANSWERED:
+        LOGI("EXOSIP_CALL_MESSAGE_ANSWERED");
+        break;
+    case EXOSIP_CALL_CLOSED:
+        LOGI("%s", evtp->textinfo);
+        //dump_sip_message(ctx, evtp->request, SIP_IN);
+        break;
+    case EXOSIP_CALL_RELEASED:
+        LOGI("%s", evtp->textinfo);
+        break;
+    case EXOSIP_CALL_MESSAGE_NEW:
+        LOGI("%s", evtp->textinfo);
+       // dump_sip_message(ctx, evtp->request, SIP_IN);
+        break;
+    case EXOSIP_CALL_PROCEEDING:
+        LOGI("%s", evtp->textinfo);
+        //dump_sip_message(ctx, evtp->response, SIP_IN);
         break;
     default:
-        dump_sip_message(ctx, evtp->request, SIP_IN);
         LOGI("recv evt: %d", evtp->type);
+        dump_sip_message(ctx, evtp->request, SIP_IN);
         break;
     }
 
@@ -274,6 +323,9 @@ sip_ctx_t * new_sip_context(conf_t *conf)
         LOGE("add authentication info error");
         goto err;
     }
+    ctx->rtp_ctx = new_rtp_context(conf, atoi(conf->ssrc));
+    if (!ctx->rtp_ctx)
+        goto err;
     ctx->eXo_ctx = eXo_ctx;
     ctx->run = 1;
     return ctx;
