@@ -248,7 +248,7 @@ static int evt_handler(sip_ctx_t *ctx, eXosip_event_t *evtp)
         LOGI("%s", evtp->textinfo);
         //dump_sip_message(ctx, evtp->response, SIP_IN);
         call_send_ack(ctx, evtp);
-        rtp_srv_run(ctx->rtp_ctx);
+        //rtp_srv_run(ctx->rtp_ctx);
         break;
     case EXOSIP_CALL_MESSAGE_ANSWERED:
         LOGI("EXOSIP_CALL_MESSAGE_ANSWERED");
@@ -326,6 +326,7 @@ sip_ctx_t * new_sip_context(conf_t *conf)
     ctx->rtp_ctx = new_rtp_context(conf, atoi(conf->ssrc));
     if (!ctx->rtp_ctx)
         goto err;
+    rtp_srv_run(ctx->rtp_ctx);
     ctx->eXo_ctx = eXo_ctx;
     ctx->run = 1;
     return ctx;

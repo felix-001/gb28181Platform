@@ -30,7 +30,7 @@ int gen_sdp(conf_t *conf, char **sdp_str)
     sdp_message_v_version_set(sdp, osip_strdup("0"));
     sdp_message_o_origin_set(sdp, osip_strdup(conf->srv_gbid), osip_strdup("0"), osip_strdup("0"), osip_strdup("IN"), osip_strdup("IP4"), osip_strdup(conf->srv_ip));
     sdp_message_s_name_set(sdp, osip_strdup("Play"));
-    sdp_message_c_connection_add(sdp, -1, osip_strdup("IN"), osip_strdup("IP4"), osip_strdup(conf->srv_gbid), NULL, NULL);
+    sdp_message_c_connection_add(sdp, -1, osip_strdup("IN"), osip_strdup("IP4"), osip_strdup(conf->srv_ip), NULL, NULL);
     sdp_message_t_time_descr_add(sdp, osip_strdup("0"), osip_strdup("0"));
     sdp_message_m_media_add(sdp, osip_strdup("video"), osip_strdup(conf->rtp_port), NULL, osip_strdup("TCP/RTP/AVP"));
     sdp_message_m_payload_add(sdp, 0, osip_strdup("96"));
