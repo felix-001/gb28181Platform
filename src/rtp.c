@@ -60,7 +60,7 @@ static void *rtp_recv_thread(void *arg)
     LOGI("got connection from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
     while(ctx->run) {
-        len = read(connfd, rtp_buf, sizeof(rtp_buf));
+        len = read(connfd, rtp_buf, RTP_MAX_LEN);
         if (len < 0) {
             LOGE("read error, %s", strerror(errno));
             goto exit;
