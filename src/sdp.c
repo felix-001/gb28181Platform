@@ -3,17 +3,17 @@
 #include "osipparser2/sdp_message.h" 
 #include "osipparser2/osip_port.h" 
 
-static int sdp_add_gb_f_y(char **sdp_str)
+static int sdp_add_gb_f_y(conf_t *conf, char **sdp_str)
 {
     char *f = "f=\r\n";
-    char *y = "y=0100000001\r\n";
-
-    *sdp_str = realloc(*sdp_str, strlen(*sdp_str)+strlen(f)+strlen(y));
+    *sdp_str = realloc(*sdp_str, strlen(*sdp_str)+strlen(conf->ssrc)+strlen(f)+4);
     if (!*sdp_str) {
         LOGE("realloc error");
         return -1;
     }
-    strcat(*sdp_str, y);
+    strcat(*sdp_str, "y=");
+    strcat(*sdp_str, conf->ssrc);
+    strcat(*sdp_str, "\r\n");
     strcat(*sdp_str, f);
     return 0;
 }
@@ -44,7 +44,7 @@ int gen_sdp(conf_t *conf, char **sdp_str)
         return -1;
     }
     sdp_message_free(sdp);
-    ret = sdp_add_gb_f_y(sdp_str);
+    ret = sdp_add_gb_f_y(conf, sdp_str);
     if (ret < 0)
         return ret;
     return 0;

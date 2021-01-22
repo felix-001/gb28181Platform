@@ -12,28 +12,50 @@ struct _rtp_ctx {
     ps_decoder_t *ps_decoder;
 };
 
-int rtp_dec(uint8_t *data, rtp_pkt_t *rtp)
-{
-    uint8_t byte = *data++;
+#define RTP_MAX_LEN (1414)
+#define PS_MAX_LEN (1024*1024*4)
+// https://datatracker.ietf.org/doc/rfc4571/?include_text=1
+//    0                   1                   2                   3
+//    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//    ---------------------------------------------------------------
+//   |             LENGTH            |  RTP or RTCP packet ...       |
+//    ---------------------------------------------------------------
+#define RFC_4571_LEN (2)
 
-    rtp->version = (byte >> 6) & 0x03;
-    rtp->padding = (byte >> 5) & 0x01;
-    rtp->extension = (byte >> 4) & 0x01;
-    rtp->csrc_count = byte & 0x0f;
-    byte = *data++;
-    rtp->marker = (byte >> 7) & 0x01;
-    rtp->payload_type = byte & 0x7f;
-    rtp->seq_num = ntohs(*(short *)data);
-    data += 2;
-    rtp->timestamp = ntohl(*(int *)data);
-    data +=4;
-    rtp->ssrc = ntohl(*(int *)data);
-    data += 4;
-    return 0;
+int read_rtp(int fd, uint8_t *rtp_buf)
+{
+    short rtp_len = 0;
+    int len = 0;
+    int read_len = 0;
+
+    len = read(fd, (uint8_t *)&rtp_len, RFC_4571_LEN);
+    if (len < 0) {
+        LOGE("read error, %s", strerror(errno));
+        return -1;
+    }
+    if (len == 0) {
+        LOGI("EOF");
+        goto exit;
+    }
+    rtp_len = ntohs(rtp_len);
+    while (rtp_len > 0) {
+        len = read(fd, rtp_buf + read_len, rtp_len);
+        if (len < 0) {
+            LOGE("read error, %s", strerror(errno));
+            return -1;
+        }
+        if (len == 0) {
+            LOGI("EOF");
+            goto exit;
+        } 
+        read_len += len;
+        rtp_len -= read_len;
+    }
+
+exit:
+    return read_len;
 }
 
-#define RTP_MAX_LEN (4096)
-#define PS_MAX_LEN (1024*1024*4)
 static void *rtp_recv_thread(void *arg)
 {
     int listenfd = 0, connfd = 0, ps_len = 0;
@@ -60,9 +82,8 @@ static void *rtp_recv_thread(void *arg)
     LOGI("got connection from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
     while(ctx->run) {
-        len = read(connfd, rtp_buf, RTP_MAX_LEN);
+        len = read_rtp(connfd, rtp_buf);
         if (len < 0) {
-            LOGE("read error, %s", strerror(errno));
             goto exit;
         }
         if (len < sizeof(RTP_header_t)) {
@@ -70,8 +91,8 @@ static void *rtp_recv_thread(void *arg)
             continue;
         }
         RTP_header_t *hdr = (RTP_header_t *)rtp_buf;
-        if (hdr->ssrc != ctx->ssrc) {
-            LOGE("check ssrc error 0x%x:0x%x", hdr->ssrc, ctx->ssrc);
+        if (ntohl(hdr->ssrc) != ctx->ssrc) {
+            LOGE("check ssrc error %d:%d", ntohl(hdr->ssrc), ctx->ssrc);
             continue;
         }
         if (!ctx->cur_timestamp) {
