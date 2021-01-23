@@ -20,6 +20,7 @@ struct _ps_decoder {
 };
 
 #define VIDEO_FILE "./gb281_video.h264"
+#define MAX_VIDEO_LEN (4*1024*1024)
 ps_decoder_t *new_ps_decoder(conf_t *conf)
 {
     ps_decoder_t * decoder = (ps_decoder_t *)malloc(sizeof(ps_decoder_t));
@@ -36,11 +37,16 @@ ps_decoder_t *new_ps_decoder(conf_t *conf)
             LOGE("open file %s error", VIDEO_FILE);
         }
     }
+    decoder->video_stream.es = (uint8_t *)malloc(MAX_VIDEO_LEN);
+    if (!decoder->video_stream.es) {
+        LOGE("malloc error");
+        return NULL;
+    }
 
     return decoder;
 }
 
-#define uint16_len(buf) htons(*(uint16_t *)buf)
+#define uint16_len(buf) ntohs(*(uint16_t *)buf)
 
 #define PACK_HEADER         (0x000001BA)
 #define SYSTEM_HEADER       (0x000001BB)
@@ -71,36 +77,49 @@ static int system_header_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 }
 
 #define PSM_HEADER_LEN (2)
-#define STREAM_TYPE_VIDEO (0xE0)
-#define STREAM_TYPE_AUDIO (0xC0)
+#define PSM_CRC_LEN (4)
+#define STREAM_TYPE_H264 (0x1b)
+#define STREAM_TYPE_G711 (0x90)
 static int program_system_map_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
     LOGI("program system map");
     uint8_t *ps_buf = decoder->ps_buf;
     uint16_t psm_len = uint16_len(ps_buf);
 
+    //dbg_dump_buf(ps_buf, 160);
+    ps_buf += 2;
     *pack_len = PSM_HEADER_LEN + psm_len;
+    LOGI("psm_len:%d", psm_len);
     ps_buf += 2;// skip indicator, version
     uint16_t psm_info_len = uint16_len(ps_buf);
+    LOGI("psm_info_len:%d", psm_info_len);
     ps_buf += psm_info_len + 2;
     uint16_t es_map_len = uint16_len(ps_buf);
     ps_buf += 2;
+    LOGI("es_map_len:%d", es_map_len);
 
     while(es_map_len >= 4) {
         uint8_t stream_type = *ps_buf++;
         
-        if (stream_type == STREAM_TYPE_VIDEO) {
+        if (stream_type == STREAM_TYPE_H264) {
             decoder->video_stream.es_id = *ps_buf++;
-        } else if (stream_type == STREAM_TYPE_AUDIO) {
+        } else if (stream_type == STREAM_TYPE_G711) {
             decoder->audio_stream.es_id = *ps_buf++;
+        } else if (stream_type == 0) {
+            LOGE("check stream type error");
+            return -1;
         } else {
             LOGE("unknow stream_type: 0x%x", stream_type);
             ps_buf++;
         }
+        LOGI("stream_type:0x%x", stream_type);
+        LOGI("es_id:0x%x", decoder->video_stream.es_id);
         uint16_t es_info_len = uint16_len(ps_buf);
+        LOGI("es_info_len:%d", es_info_len);
         ps_buf += es_info_len + 2;
         es_map_len -= 4 + es_info_len;
     }
+    ps_buf += PSM_CRC_LEN;
     *pack_len = ps_buf - decoder->ps_buf;
     return 0;
 }
@@ -131,21 +150,29 @@ static int64_t parse_timestamp(const uint8_t* p)
 static int  pes_decode(ps_decoder_t *decoder, int64_t *pts, stream_info_t *stream, uint32_t *pack_len)
 {
     uint8_t *ps_buf = decoder->ps_buf;
+    //dbg_dump_buf(ps_buf, 64);
     uint16_t pes_pkt_len = uint16_len(ps_buf);
+    //LOGI("pes_pkt_len:%d", pes_pkt_len);
     ps_buf += 2;
     uint8_t pts_dts_flags = ((*ps_buf++) & 0xF0) >> 6;
-    ps_buf += 2;// skip escr es_rate ... flags
+    ps_buf++;// skip escr es_rate ... flags
     uint8_t hdr_data_len = *ps_buf++;
     ps_buf += hdr_data_len;
-    if (pts && pts_dts_flags) {
-        *pts = parse_timestamp(ps_buf);
+    //LOGI("hdr_data_len:%d", hdr_data_len);
+    // hdr_data_len already contain timestamp len(5bytes)
+    // so here needn't to ps_buf += TIMESTAMP_LEN;
+    if (pts_dts_flags) {
+        if (pts)
+            *pts = parse_timestamp(ps_buf);
     }
-    ps_buf += TIMESTAMP_LEN;
-    uint32_t payload_len = pes_pkt_len - (ps_buf - decoder->ps_buf); 
+    uint32_t payload_len = pes_pkt_len - (ps_buf - decoder->ps_buf - 2);// 2 - pes_pkt_len 
+    LOGI("payload_len:%d", payload_len);
+    //dbg_dump_buf(ps_buf, 64);
     if (stream) {
-        stream->es = ps_buf;
-        stream->es_len = payload_len;
+        memcpy(stream->es+stream->es_len, ps_buf, payload_len);
+        stream->es_len += payload_len;
     }
+    ps_buf += payload_len;
     *pack_len = ps_buf - decoder->ps_buf;
     return 0;
 }
@@ -218,7 +245,9 @@ int ps_decode(ps_decoder_t *decoder, uint8_t *ps_buf, int ps_len, ps_pkt_t *ps_p
         int idx = hash(header);
         if (handlers[idx]) {
             uint32_t pack_len = 0;
+            //LOGI("pos:%ld", decoder->ps_buf - ps_buf);
             handlers[idx](decoder, &pack_len);
+            //LOGI("pack_len:%d", pack_len);
             decoder->ps_buf += pack_len;
         } else {
             LOGE("check header error: 0x%x", header);
@@ -229,10 +258,12 @@ int ps_decode(ps_decoder_t *decoder, uint8_t *ps_buf, int ps_len, ps_pkt_t *ps_p
     if (!strcmp(decoder->conf->dump_video_file, "on") 
         && decoder->video_stream.es
         && decoder->vfp) {
+        //dbg_dump_buf(decoder->video_stream.es, 64);
         if (fwrite(decoder->video_stream.es, decoder->video_stream.es_len, 1, decoder->vfp) != 1) {
             LOGE("write video to file error");
         }
     }
+    decoder->video_stream.es_len = 0;
 
     return 0;
 }

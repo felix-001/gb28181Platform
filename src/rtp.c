@@ -12,13 +12,6 @@ struct _rtp_ctx {
     ps_decoder_t *ps_decoder;
 };
 
-static void dbg_dump_buf(uint8_t *buf, size_t size)
-{
-    for (int i=0; i<size; i++) {
-        printf("0x%x ", buf[i]);
-    }
-    printf("\n");
-}
 
 #define RTP_MAX_LEN (1414)
 #define PS_MAX_LEN (1024*1024*4)

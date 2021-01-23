@@ -40,5 +40,6 @@ typedef struct {
     char *enable_cli;
 } conf_t;
 #define arrsz(arr) (sizeof(arr)/sizeof(arr[0]))
+extern void dbg_dump_buf(uint8_t *buf, size_t size);
 
 #endif

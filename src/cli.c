@@ -4,10 +4,12 @@
 
 static int cmd_proc(char *buf, sip_ctx_t *ctx)
 {
-    if (!strcmp(buf, "invite")) {
+    if (!strncmp(buf, "invite", strlen("invite"))) {
         start_stream(ctx);
-    } else if (!strcmp(buf, "exit")) {
+    } else if (!strncmp(buf, "exit", strlen("exit"))) {
         exit(0);
+    } else if (!strncmp(buf, "help", strlen("help"))) {
+        printf("support commands: invite exit\n");
     }
 
     return 0;
