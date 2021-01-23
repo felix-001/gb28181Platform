@@ -186,6 +186,7 @@ static int send_invite_req(sip_ctx_t *ctx)
 	osip_message_set_header(msg, "Session-Expires", expires);
 	osip_message_set_supported(msg, "timer");
 	ctx->callid = eXosip_call_send_initial_invite(eXo_ctx, msg);
+    rtp_srv_run(ctx->rtp_ctx);
     //dump_sip_message(ctx, msg, SIP_OUT);
     return 0;
 }
@@ -326,7 +327,6 @@ sip_ctx_t * new_sip_context(conf_t *conf)
     ctx->rtp_ctx = new_rtp_context(conf, atoi(conf->ssrc));
     if (!ctx->rtp_ctx)
         goto err;
-    rtp_srv_run(ctx->rtp_ctx);
     ctx->eXo_ctx = eXo_ctx;
     ctx->run = 1;
     return ctx;
@@ -340,5 +340,12 @@ int sip_run(sip_ctx_t *ctx)
         return -1;
 
     pthread_create(&ctx->tid, NULL, sip_evtloop_thread, (void*)ctx);
+    return 0;
+}
+
+int start_stream(sip_ctx_t *ctx)
+{
+    send_invite_req(ctx);
+
     return 0;
 }

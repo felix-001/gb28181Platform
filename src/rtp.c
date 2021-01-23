@@ -12,6 +12,14 @@ struct _rtp_ctx {
     ps_decoder_t *ps_decoder;
 };
 
+static void dbg_dump_buf(uint8_t *buf, size_t size)
+{
+    for (int i=0; i<size; i++) {
+        printf("0x%x ", buf[i]);
+    }
+    printf("\n");
+}
+
 #define RTP_MAX_LEN (1414)
 #define PS_MAX_LEN (1024*1024*4)
 // https://datatracker.ietf.org/doc/rfc4571/?include_text=1
@@ -52,6 +60,7 @@ int read_rtp(int fd, uint8_t *rtp_buf)
         rtp_len -= read_len;
     }
 
+    //dbg_dump_buf(rtp_buf, 32);
 exit:
     return read_len;
 }
@@ -83,19 +92,22 @@ static void *rtp_recv_thread(void *arg)
 
     while(ctx->run) {
         len = read_rtp(connfd, rtp_buf);
-        if (len < 0) {
+        if (len <= 0) {
+            LOGI("len:%d", len);
             goto exit;
         }
-        if (len < sizeof(RTP_header_t)) {
+        if (len <= sizeof(RTP_header_t)) {
             LOGE("got rtp pkt len:%d", len);
             continue;
         }
         RTP_header_t *hdr = (RTP_header_t *)rtp_buf;
         if (ntohl(hdr->ssrc) != ctx->ssrc) {
-            LOGE("check ssrc error %d:%d", ntohl(hdr->ssrc), ctx->ssrc);
+            LOGE("check ssrc error %u:%u", ntohl(hdr->ssrc), ntohl(ctx->ssrc));
             continue;
         }
-        if (!ctx->cur_timestamp) {
+        if (ctx->cur_timestamp == (uint32_t)-1) {
+            memcpy(ps_buf+ps_len, rtp_buf+sizeof(RTP_header_t), len - sizeof(RTP_header_t));
+            ps_len += len - sizeof(RTP_header_t);
             ctx->cur_timestamp = hdr->timestamp;
         } else if (hdr->timestamp == ctx->cur_timestamp){
             if (ps_len + len - sizeof(RTP_header_t) > PS_MAX_LEN) {
@@ -103,11 +115,24 @@ static void *rtp_recv_thread(void *arg)
                 ps_len = 0;
                 continue;
             }
+            //LOGI("len:%d rtp header len:%d",len, sizeof(RTP_header_t));
             memcpy(ps_buf+ps_len, rtp_buf+sizeof(RTP_header_t), len - sizeof(RTP_header_t));
             ps_len += len - sizeof(RTP_header_t);
         } else {
             ps_pkt_t ps_pkt;
-            ps_decode(ctx->ps_decoder, ps_buf, ps_len, &ps_pkt);
+            if (!ps_len) {
+                ps_len = len - sizeof(RTP_header_t);
+            }
+            //LOGI("got ps len:%d", ps_len);
+            int ret = ps_decode(ctx->ps_decoder, ps_buf, ps_len, &ps_pkt);
+            if (ret < 0) {
+                //dbg_dump_buf(ps_buf, 32);
+                return NULL;
+            }
+            ps_len = 0;
+            memcpy(ps_buf+ps_len, rtp_buf+sizeof(RTP_header_t), len - sizeof(RTP_header_t));
+            ps_len += len - sizeof(RTP_header_t);
+            ctx->cur_timestamp = hdr->timestamp;
         }
     }
 
@@ -129,6 +154,7 @@ rtp_ctx_t *new_rtp_context(conf_t *conf, uint32_t ssrc)
     ctx->conf = conf;
     ctx->run = 1;
     ctx->ssrc = ssrc;
+    ctx->cur_timestamp = (uint32_t)-1;
     ctx->ps_decoder = new_ps_decoder(conf);
     if (!ctx->ps_decoder)
         return NULL;

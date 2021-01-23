@@ -1,6 +1,7 @@
 #include "public.h"
 #include "sip.h"
 #include "conf.h"
+#include "cli.h"
 
 #define CONF_FILE "/usr/local/etc/gbSrv.conf"
 
@@ -22,6 +23,7 @@ static int conf_handler(void* user, const char* section, const char* name, const
     conf_get(auto_invite);
     conf_get(ssrc);
     conf_get(dump_video_file);
+    conf_get(enable_cli);
     return 0;
 }
 
@@ -60,6 +62,23 @@ const char* get_ip(void)
     return NULL;
 }
 
+void dump_conf(conf_t *conf)
+{
+    LOGI("srv_gbid\t: %s", conf->srv_gbid);
+    LOGI("ua\t\t: %s", conf->ua);
+    LOGI("rtp_port\t: %s", conf->rtp_port);
+    LOGI("srv_sip_port\t: %s", conf->srv_sip_port);
+    LOGI("passwd\t: %s", conf->passwd);
+    LOGI("expiry\t: %s", conf->expiry);
+    LOGI("timeout\t: %s", conf->timeout);
+    LOGI("srv_ip\t: %s", conf->srv_ip);
+    LOGI("dbg\t\t: %s", conf->dbg);
+    LOGI("auto_invite\t: %s", conf->auto_invite);
+    LOGI("ssrc\t\t: %s", conf->ssrc);
+    LOGI("dump_video\t: %s", conf->dump_video_file);
+    LOGI("enable_cli\t: %s", conf->enable_cli);
+}
+
 int main(int argc, char *argv[])
 {
     conf_t conf;
@@ -76,22 +95,13 @@ int main(int argc, char *argv[])
         exit(0);
     }
     conf.srv_ip = strdup(ip);
-    LOGI("srv_gbid\t: %s", conf.srv_gbid);
-    LOGI("ua\t\t: %s", conf.ua);
-    LOGI("rtp_port\t: %s", conf.rtp_port);
-    LOGI("srv_sip_port\t: %s", conf.srv_sip_port);
-    LOGI("passwd\t: %s", conf.passwd);
-    LOGI("expiry\t: %s", conf.expiry);
-    LOGI("timeout\t: %s", conf.timeout);
-    LOGI("srv_ip\t: %s", conf.srv_ip);
-    LOGI("dbg\t\t: %s", conf.dbg);
-    LOGI("auto_invite\t: %s", conf.auto_invite);
-    LOGI("ssrc\t\t: %s", conf.ssrc);
-    LOGI("dump_videl\t: %s", conf.dump_video_file);
+    dump_conf(&conf);
     sip_ctx_t *ctx = new_sip_context(&conf);
-    if (!ctx)
-        exit(0);
+    if (!ctx) exit(0);
     sip_run(ctx);
+    if (!strcmp(conf.enable_cli, "on")) {
+        start_cli(ctx);
+    }
     for(;;) {
         sleep(3);
     }

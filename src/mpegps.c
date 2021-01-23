@@ -54,14 +54,16 @@ typedef int (*decode_handler_t)(ps_decoder_t *decoder, uint32_t *pack_len);
 #define PACK_HEADER_LEN (10)
 static int pack_header_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("pack header");
     uint8_t stuffing_len = decoder->ps_buf[9] & 0x07;
-    *pack_len = PACK_HEADER + stuffing_len;
+    *pack_len = PACK_HEADER_LEN + stuffing_len;
     return 0;
 }
 
 #define SYSTEM_HEADER_LEN (2)
 static int system_header_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("system header");
     uint16_t len = uint16_len(decoder->ps_buf);
     *pack_len = SYSTEM_HEADER_LEN + len;
     decoder->iskey = 1;
@@ -73,6 +75,7 @@ static int system_header_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 #define STREAM_TYPE_AUDIO (0xC0)
 static int program_system_map_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("program system map");
     uint8_t *ps_buf = decoder->ps_buf;
     uint16_t psm_len = uint16_len(ps_buf);
 
@@ -149,16 +152,19 @@ static int  pes_decode(ps_decoder_t *decoder, int64_t *pts, stream_info_t *strea
 
 static int pes_video_stream_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("video");
     return pes_decode(decoder, &decoder->video_pts, &decoder->video_stream, pack_len);
 }
 
 static int pes_audio_stream_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("audio");
     return pes_decode(decoder, &decoder->audio_pts, &decoder->audio_stream, pack_len);
 }
 
 static int pes_private_stream_handler(ps_decoder_t *decoder, uint32_t *pack_len)
 {
+    LOGI("private pes");
     return pes_decode(decoder, NULL, NULL, pack_len);
 }
 
@@ -181,21 +187,42 @@ static size_t hash(size_t hash)
     return (hash *FIBONACCI_64BIT) >> 61;
 }
 
+static int check_header(uint32_t header)
+{
+    if (header != PACK_HEADER
+     && header != SYSTEM_HEADER
+     && header != PROGRAM_STREM_MAP
+     && header != PES_VIDEO_STREAM
+     && header != PES_AUDIO_STREAM
+     && header != PES_PRIVATE_STREAM) {
+         return -1;
+     }
+     return 0;
+}
+
 #define HEADER_LEN (4)
 int ps_decode(ps_decoder_t *decoder, uint8_t *ps_buf, int ps_len, ps_pkt_t *ps_pkt)
 {
-    if (!decoder || !ps_buf || !ps_pkt)
+    if (!decoder || !ps_buf || !ps_pkt || !ps_len)
         return -1;
 
     decoder->ps_buf = ps_buf;
     while(decoder->ps_buf < ps_buf + ps_len) {
-        uint32_t header = ntohl(*(uint32_t *)ps_buf);
+        uint32_t header = ntohl(*(uint32_t *)decoder->ps_buf);
+        //LOGI("header:0x%x", header);
+        if (check_header(header) < 0) {
+            LOGE("check header error, 0x%x offset: %ld", header, decoder->ps_buf - ps_buf);
+            return -1;
+        }
         decoder->ps_buf += HEADER_LEN;
         int idx = hash(header);
         if (handlers[idx]) {
             uint32_t pack_len = 0;
             handlers[idx](decoder, &pack_len);
             decoder->ps_buf += pack_len;
+        } else {
+            LOGE("check header error: 0x%x", header);
+            return -1;
         }
     }
 

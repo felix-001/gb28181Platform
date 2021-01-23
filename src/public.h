@@ -37,6 +37,7 @@ typedef struct {
     char *dump_video_file;
     char *auto_invite;
     char *ssrc;
+    char *enable_cli;
 } conf_t;
 #define arrsz(arr) (sizeof(arr)/sizeof(arr[0]))
 
