@@ -18,7 +18,7 @@
 
 # roadmap
 - [x] 成功注册
-- [ ] rtp流解析后存储.h264,ffplay可以播放 
+- [x] rtp流解析后存储.h264,ffplay可以播放 
 - [ ] sdl能够播放
 - [ ] 追加ui
 
