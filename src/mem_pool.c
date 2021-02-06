@@ -118,7 +118,8 @@ int mem_pool_pop_blk(mem_pool_t *mp, void **blk, size_t *size)
         goto err;
     }
     *blk = blk->mem;
-    *size = blk->size;
+    if (size)
+        *size = blk->size;
     if (++mp->read_idx == mp->capacity)
         mp->read_idx = 0;
     mp->size--;

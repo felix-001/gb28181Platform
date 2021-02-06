@@ -1,20 +1,28 @@
 #include <SDL.h>
 #include <SDL_thread.h>
+#include <math.h>
 #include "public.h"
 #include "mem_pool.h"
+
+#define MEM_POOL_SIZE 5
 
 typedef struct disp_t {
     SDL_Surface *screen;
     SDL_mutex *pictq_mutex;
     SDL_cond *pictq_cond;
     AVCodecContext *codecCtx;
-    struct SwsContext *swsCtx;
-    double frame_timer;
-    frame_last_delay double;
     AVFrame *frame;
-    double video_clock;
+    struct SwsContext *swsCtx;
+    double frame_last_delay;
+    double frame_last_pts;
     mem_pool_t *mem_pool;
 } disp_t;
+
+typedef struct video_pkt_t {
+    double pts;
+    SDL_Overlay *overlay;
+    size_t size;
+};
 
 static uint32_t sdl_refresh_timer_cb(uint32_t interval, void *opaque)
 {
@@ -48,6 +56,41 @@ static int sdl_init(disp_t *disp)
     return 0;
 }
 
+static int decoder_init(disp_t *disp)
+{
+    AVCodecContext *codecCtx = NULL;
+    AVCodec *codec = NULL;
+    codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    if (!codec) {
+        LOGE("Unsupported codec!");
+        return -1;
+    }
+    codecCtx = avcodec_alloc_context3(codec);
+    if (avcodec_copy_context(codecCtx, pFormatCtx->streams[stream_index]->codec) != 0) {
+        LOGE("Couldn't copy codec context");
+        return -1;
+    }
+    if (avcodec_open2(codecCtx, codec, NULL) < 0) {
+        LOGE("Unsupported codec!");
+        return -1;
+    }
+    disp->frame = av_frame_alloc();
+    if (!disp->frame) {
+        LOGE("alloc frame error");
+        return -1;
+    }
+    disp->swsCtx = sws_getContext(codecCtx->width, codecCtx->height,
+                                  codecCtx->pix_fmt, codecCtx->width,
+                                  codecCtx->height, PIX_FMT_YUV420P,
+                                  SWS_BILINEAR, NULL, NULL, NULL);
+    disp->frame_timer = (double)av_gettime() / 1000000.0;
+    disp->frame_last_delay = 40e-3;
+    disp->codecCtx = codecCtx;
+
+    return 0;
+}
+
+
 disp_t* new_disp()
 {
     disp_t * disp = malloc(sizeof(disp_t));
@@ -56,17 +99,75 @@ disp_t* new_disp()
         return NULL;
     }
     memset(disp, 0, sizeof(*disp));
+    sdl_init(disp);
+    decoder_init(disp);
+    disp->mem_pool = new_mem_pool(MEM_POOL_SIZE, 0, blk_alloc, blk_realloc, push_blk, disp);
+    if (!disp->mem_pool)
+        return -1;
 
     return disp;
 }
 
+static int compute_disp_coordinate(disp_t *disp, SDL_Rect *rect)
+{
+    AVCodecContext *codecCtx = disp->codecCtx;
+    float aspect_ratio = 0;
+    int w, h, x, y;
+
+    if(codecCtx->sample_aspect_ratio.num) {
+        aspect_ratio = av_q2d(codecCtx->sample_aspect_ratio) * codecCtx->width / codecCtx->height;
+    }
+    if(aspect_ratio <= 0.0) {
+        aspect_ratio = (float)codecCtx->width / (float)codecCtx->height;
+    }
+    h = disp->screen->h;
+    w = ((int)rint(h * aspect_ratio)) & -3;
+    if(w > disp->screen->w) {
+        w = disp->screen->w;
+        h = ((int)rint(w / aspect_ratio)) & -3;
+    }
+    x = (disp->screen->w - w) / 2;
+    y = (disp->screen->h - h) / 2;
+    rect->x = x;
+    rect->y = y;
+    rect->w = w;
+    rect->h = h;
+    return 0;
+}
+
+static double get_next_delay(disp_t *disp, video_pkt_t *pkt) 
+{
+    double frame_delay, pts;
+
+    frame_delay = pkt->pts - disp->frame_last_pts;
+    if (!pkt->pts || (frame_delay <= 0 || frame_delay >= 1.0)) {
+        return disp->frame_last_delay;
+    }
+    disp->frame_last_delay = frame_delay;
+    disp->frame_last_pts = pts;
+    if (frame_delay < 0.010) {
+        frame_delay = 0.010;
+    }
+    return frame_delay;
+}
+
 static int video_display(disp_t *disp)
 {
+    SDL_Overlay *overlay = NULL;
+    SDL_Rect rect;
+
+    if (mem_pool_pop_blk(&disp->mem_pool, &overlay, NULL) < 0)
+        return -1;
+    if (!overlay)
+        return -1;
+    compute_disp_coordinate(disp, &rect); 
+    SDL_DisplayYUVOverlay(overlay, &rect);
     return 0;
 }
 
 static int schedule_next(disp_t *disp)
 {
+    double delay = get_next_delay(disp, pkt);
     return 0;
 }
 
@@ -93,45 +194,9 @@ static void *evt_handle_thread(void *arg)
     return NULL;
 }
 
-static int decoder_init(disp_t *disp)
-{
-    AVCodecContext *codecCtx = NULL;
-    AVCodec *codec = NULL;
-    codec = avcodec_find_decoder(AV_CODEC_ID_H264;
-    if (!codec) {
-        LOGE("Unsupported codec!");
-        return -1;
-    }
-
-  codecCtx = avcodec_alloc_context3(codec);
-  if (avcodec_copy_context(codecCtx, pFormatCtx->streams[stream_index]->codec) != 0) {
-        LOGE("Couldn't copy codec context");
-        return -1; 
-  }
-  if (avcodec_open2(codecCtx, codec, NULL) < 0) {
-        LOGE("Unsupported codec!");
-        return -1;
-  }
-  disp->frame = av_frame_alloc();
-  if (!disp->frame) {
-      LOGE("alloc frame error");
-      return -1;
-  }
-  disp->swsCtx = sws_getContext(codecCtx->width, codecCtx->height,
-				                codecCtx->pix_fmt, codecCtx->width,
-				                codecCtx->height, PIX_FMT_YUV420P,
-				                SWS_BILINEAR, NULL, NULL, NULL);
-  disp->frame_timer = (double)av_gettime() / 1000000.0;
-  disp->frame_last_delay = 40e-3;
-  disp->codecCtx = codecCtx;
-}
-
 static void *disp_thread(void *arg)
 {
     disp_t *disp = (disp_t *)arg;
-
-    sdl_init(disp);
-    decoder_init(disp);
 
     for (;;) {
 
@@ -142,14 +207,13 @@ static void *disp_thread(void *arg)
 int start_disp(disp_t *disp)
 {
     pthread_t tid;
-    SDL_AddTimer(40, sdl_refresh_timer_cb, disp);
     pthread_create(&tid, NULL, evt_handle_thread, disp);
     pthread_create(&tid, NULL, disp_thread, disp);
     return 0;
 }
 
-static double synchronize_video(disp_t *disp, AVFrame *frame, double pts) {
-
+static double synchronize_video(disp_t *disp, AVFrame *frame, double pts) 
+{
   double frame_delay;
 
   if(pts != 0) {
@@ -240,17 +304,11 @@ int decode(disp_t *disp, uint8_t *video, uin32_t len, int64_t pts)
         return -1;
     }
     if (done) {
-        pts = synchronize_video(disp, frame, pts);
-        if (!disp->mem_pool) {
-            AVCodecContext *codecCtx = disp->codecCtx;
-            disp->mem_pool = new_mem_pool(5, 0, blk_alloc, blk_realloc, push_blk, disp);
-            if (!disp->mem_pool)
-                return -1;
-            if (mem_pool_push_blk(disp->mem_pool, 
-                                  frame, 
-                                  codecCtx->height*codecCtx->width) < 0)
-                return -1;
-        }
+        int ret = mem_pool_push_blk(disp->mem_pool, 
+                              frame,
+                              codecCtx->height * codecCtx->width);
+        if (ret < 0)
+            return -1;
     }
 
     return 0;
