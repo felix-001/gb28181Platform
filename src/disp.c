@@ -2,36 +2,19 @@
 #include <SDL_thread.h>
 #include <math.h>
 #include "public.h"
-#include "mem_pool.h"
+#include "queue.h"
 
-#define MEM_POOL_SIZE 5
+#define FRAME_QUEUE_SIZE 5
+#define REFRESH_RATE 0.01
 
 typedef struct disp_t {
-    SDL_Surface *screen;
-    SDL_mutex *pictq_mutex;
-    SDL_cond *pictq_cond;
     AVCodecContext *codecCtx;
-    AVFrame *frame;
     struct SwsContext *swsCtx;
-    double frame_last_delay;
-    double frame_last_pts;
-    mem_pool_t *mem_pool;
+    queue_t *frame_queue;
+    AVFrame *frame;
+    double max_frame_duration;
+    double default_duration;
 } disp_t;
-
-typedef struct video_pkt_t {
-    double pts;
-    SDL_Overlay *overlay;
-    size_t size;
-};
-
-static uint32_t sdl_refresh_timer_cb(uint32_t interval, void *opaque)
-{
-    SDL_Event event;
-    event.type = FF_REFRESH_EVENT;
-    event.user.data1 = opaque;
-    SDL_PushEvent(&event);
-    return 0;
-}
 
 static int sdl_init(disp_t *disp)
 {
@@ -44,14 +27,10 @@ static int sdl_init(disp_t *disp)
 #else
     disp->screen = SDL_SetVideoMode(640, 480, 24, 0);
 #endif
-    if (!screen) {
+    if (!disp->screen) {
         LOGE("SDL: could not set video mode - exiting");
         return -1;
     }
-    disp->screen_mutex = SDL_CreateMutex();
-    is->pictq_mutex = SDL_CreateMutex();
-    is->pictq_cond = SDL_CreateCond();
-    SDL_AddTimer(40, sdl_refresh_timer_cb, disp);
 
     return 0;
 }
@@ -74,22 +53,25 @@ static int decoder_init(disp_t *disp)
         LOGE("Unsupported codec!");
         return -1;
     }
-    disp->frame = av_frame_alloc();
-    if (!disp->frame) {
-        LOGE("alloc frame error");
-        return -1;
-    }
     disp->swsCtx = sws_getContext(codecCtx->width, codecCtx->height,
                                   codecCtx->pix_fmt, codecCtx->width,
                                   codecCtx->height, PIX_FMT_YUV420P,
                                   SWS_BILINEAR, NULL, NULL, NULL);
-    disp->frame_timer = (double)av_gettime() / 1000000.0;
-    disp->frame_last_delay = 40e-3;
     disp->codecCtx = codecCtx;
 
     return 0;
 }
 
+static void *frame_blk_alloc(void *opaque, size_t *size)
+{
+    AVFrame *frame = av_frame_alloc();
+    if (!frame) {
+        LOGE("mem error");
+        return NULL;
+    }
+    *size = sizeof(AVFrame);
+    return (void *)frame;
+}
 
 disp_t* new_disp()
 {
@@ -99,56 +81,17 @@ disp_t* new_disp()
         return NULL;
     }
     memset(disp, 0, sizeof(*disp));
+    disp->frame = av_frame_alloc();
+    if (!disp->frame) {
+        LOGE("mem error");
+        return -1;
+    }
+    disp->frame_queue = new_queue(FRAME_QUEUE_SIZE, frame_blk_alloc, disp);
+    if (!disp->frame_queue)
+        return -1;
     sdl_init(disp);
     decoder_init(disp);
-    disp->mem_pool = new_mem_pool(MEM_POOL_SIZE, 0, blk_alloc, blk_realloc, push_blk, disp);
-    if (!disp->mem_pool)
-        return -1;
-
     return disp;
-}
-
-static int compute_disp_coordinate(disp_t *disp, SDL_Rect *rect)
-{
-    AVCodecContext *codecCtx = disp->codecCtx;
-    float aspect_ratio = 0;
-    int w, h, x, y;
-
-    if(codecCtx->sample_aspect_ratio.num) {
-        aspect_ratio = av_q2d(codecCtx->sample_aspect_ratio) * codecCtx->width / codecCtx->height;
-    }
-    if(aspect_ratio <= 0.0) {
-        aspect_ratio = (float)codecCtx->width / (float)codecCtx->height;
-    }
-    h = disp->screen->h;
-    w = ((int)rint(h * aspect_ratio)) & -3;
-    if(w > disp->screen->w) {
-        w = disp->screen->w;
-        h = ((int)rint(w / aspect_ratio)) & -3;
-    }
-    x = (disp->screen->w - w) / 2;
-    y = (disp->screen->h - h) / 2;
-    rect->x = x;
-    rect->y = y;
-    rect->w = w;
-    rect->h = h;
-    return 0;
-}
-
-static double get_next_delay(disp_t *disp, video_pkt_t *pkt) 
-{
-    double frame_delay, pts;
-
-    frame_delay = pkt->pts - disp->frame_last_pts;
-    if (!pkt->pts || (frame_delay <= 0 || frame_delay >= 1.0)) {
-        return disp->frame_last_delay;
-    }
-    disp->frame_last_delay = frame_delay;
-    disp->frame_last_pts = pts;
-    if (frame_delay < 0.010) {
-        frame_delay = 0.010;
-    }
-    return frame_delay;
 }
 
 static int video_display(disp_t *disp)
@@ -156,8 +99,6 @@ static int video_display(disp_t *disp)
     SDL_Overlay *overlay = NULL;
     SDL_Rect rect;
 
-    if (mem_pool_pop_blk(&disp->mem_pool, &overlay, NULL) < 0)
-        return -1;
     if (!overlay)
         return -1;
     compute_disp_coordinate(disp, &rect); 
@@ -165,27 +106,18 @@ static int video_display(disp_t *disp)
     return 0;
 }
 
-static int schedule_next(disp_t *disp)
-{
-    double delay = get_next_delay(disp, pkt);
-    return 0;
-}
-
 static void *evt_handle_thread(void *arg)
 {
     SDL_Event event;
+
     for (;;) {
         SDL_WaitEvent(&event);
         switch (event.type)
         {
         case FF_QUIT_EVENT:
         case SDL_QUIT:
-            is->quit = 1;
             SDL_Quit();
             return 0;
-            break;
-        case FF_REFRESH_EVENT:
-            video_refresh_timer(event.user.data1);
             break;
         default:
             break;
@@ -194,11 +126,43 @@ static void *evt_handle_thread(void *arg)
     return NULL;
 }
 
+inline double pts2sec(int64_t pts, AVRational time_base)
+{
+    double sec = (pts == AV_NOPTS_VALUE) ? NAN : pts * av_q2d(time_base);
+    return sec;
+}
+
+static double get_duration(disp_t *disp, AVFrame *frame, AVFrame *last_frame)
+{
+    double pts = pts2sec(frame->pts, disp->codecCtx->framerate);
+    double last_pts = pts2sec(last_frame->pts, disp->codecCtx->framerate);
+    double duration = pts - last_pts;
+    if (isnan(duration) || duration <= 0 || duration > disp->max_frame_duration)
+        return disp->default_duration;
+    return duration;
+}
+
+int video_refresh(disp_t *disp, double *remaining_time)
+{
+    if (!queue_size(disp->frame_queue))
+        return -1;
+    AVFrame *frame = queue_peek(disp->queue);
+    AVFrame *last_frame = queue_peek_last(disp->queue);
+    double duration = get_duration(disp, frame, last_frame);
+}
+
 static void *disp_thread(void *arg)
 {
     disp_t *disp = (disp_t *)arg;
+    double remaining_time = 0.0;
+    AVRational frame_rate = disp->codecCtx->framerate;
 
+    disp->default_duration = frame_rate.num && frame_rate.den ? av_q2d(frame_rate) : 0;
     for (;;) {
+        if (remaining_time > 0.0)
+            av_usleep((int64_t)(remaining_time * 1000000.0));
+        remaining_time = REFRESH_RATE;
+        video_refresh(disp, &remaining_time);
 
     }
     return NULL;
@@ -212,78 +176,6 @@ int start_disp(disp_t *disp)
     return 0;
 }
 
-static double synchronize_video(disp_t *disp, AVFrame *frame, double pts) 
-{
-  double frame_delay;
-
-  if(pts != 0) {
-      disp->video_clock = pts;
-  } else {
-      pts = is->video_clock;
-  }
-  frame_delay = av_q2d(disp->codecCtx->time_base);
-  frame_delay += frame->repeat_pict * (frame_delay * 0.5);
-  disp->video_clock += frame_delay;
-  return pts;
-}
-
-static void *blk_alloc(size_t blk_size, void *opaque)
-{
-    disp_t *disp = (disp_t *)opaque;
-    AVCodecContext *codecCtx = disp->codecCtx;
-
-    if (!codecCtx)
-        return -1;
-    return SDL_CreateYUVOverlay(codecCtx->width,
-				                icodecCtx->height,
-				                SDL_YV12_OVERLAY,
-				                disp->screen);
-}
-
-static void *blk_realloc(void *mem, size_t blk_size, void *opaque)
-{
-    disp_t *disp = (disp_t *)opaque;
-    AVCodecContext *codecCtx = disp->codecCtx;
-
-    if (!codecCtx)
-        return -1;
-    if (!mem)
-        return -1;
-    SDL_FreeYUVOverlay((SDL_Overlay *)mem);
-    return SDL_CreateYUVOverlay(codecCtx->width,
-				                icodecCtx->height,
-				                SDL_YV12_OVERLAY,
-				                disp->screen);
-}
-
-static int push_blk(void *src, void *mem, size_t blk_size, void *opaque)
-{
-    if (!mem || !opaque)
-        return -1;
-    AVFrame *frame = (AVFrame *)src;
-    disp_t *disp = (disp_t *)opaque;
-    AVPicture pict;
-    SDL_Overlay *overlay = (SDL_Overlay *)mem;
-
-    pict.data[0] = overlay->pixels[0];
-    pict.data[1] = overlay->pixels[2];
-    pict.data[2] = overlay->pixels[1];
-    pict.linesize[0] = overlay->pitches[0];
-    pict.linesize[1] = overlay->pitches[2];
-    pict.linesize[2] = overlay->pitches[1];
-    int ret = sws_scale(disp->swsCtx,
-                        (uint8_t const *const *)frame->data,
-                        frame->linesize,
-                        0,
-                        disp->codecCtx->height,
-                        pict.data,
-                        pict.linesize);
-    if (ret < 0) {
-        LOGE("sws scale error");
-        return -1;
-    }
-    return 0;
-}
 
 int decode(disp_t *disp, uint8_t *video, uin32_t len, int64_t pts)
 {
@@ -304,9 +196,7 @@ int decode(disp_t *disp, uint8_t *video, uin32_t len, int64_t pts)
         return -1;
     }
     if (done) {
-        int ret = mem_pool_push_blk(disp->mem_pool, 
-                              frame,
-                              codecCtx->height * codecCtx->width);
+        int ret = queue_push(disp->frame_queue, frame);
         if (ret < 0)
             return -1;
     }

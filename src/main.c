@@ -2,6 +2,7 @@
 #include "sip.h"
 #include "conf.h"
 #include "cli.h"
+#include "disp.h"
 
 #define CONF_FILE "/usr/local/etc/gbSrv.conf"
 
@@ -79,26 +80,38 @@ void dump_conf(conf_t *conf)
     LOGI("enable_cli\t: %s", conf->enable_cli);
 }
 
-int main(int argc, char *argv[])
+int load_conf(conf_t *conf)
 {
-    conf_t conf;
-
     memset(&conf, 0, sizeof(conf));
     int ret = ini_parse(CONF_FILE, conf_handler, &conf);
     if (ret < 0) {
         LOGE("load conf %s error %d %s", CONF_FILE, ret, strerror(errno));
-        exit(0);
+        return -1;
     }
     const char *ip = get_ip();
     if (!ip) {
         LOGE("get ip error");
-        exit(0);
+        return -1;
     }
     conf.srv_ip = strdup(ip);
+
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    conf_t conf;
+
+    load_conf(&conf);
     dump_conf(&conf);
     sip_ctx_t *ctx = new_sip_context(&conf);
-    if (!ctx) exit(0);
+    if (!ctx) 
+        exit(0);
     sip_run(ctx);
+    disp_t *disp = new_disp();
+    if (!disp)
+        exit(0);
+    start_disp(disp);
     if (!strcmp(conf.enable_cli, "on")) {
         start_cli(ctx);
     }
