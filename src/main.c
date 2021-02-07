@@ -93,7 +93,7 @@ int load_conf(conf_t *conf)
         LOGE("get ip error");
         return -1;
     }
-    conf.srv_ip = strdup(ip);
+    conf->srv_ip = strdup(ip);
 
     return 0;
 }
