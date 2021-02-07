@@ -6,6 +6,7 @@
 
 #define FRAME_QUEUE_SIZE 5
 #define REFRESH_RATE 0.01
+#define AV_SYNC_THRESHOLD_MAX 0.1
 
 typedef struct disp_t {
     AVCodecContext *codecCtx;
@@ -14,6 +15,8 @@ typedef struct disp_t {
     AVFrame *frame;
     double max_frame_duration;
     double default_duration;
+    double frame_timer;
+    SDL_Overlay *overlay;
 } disp_t;
 
 static int sdl_init(disp_t *disp)
@@ -81,6 +84,7 @@ disp_t* new_disp()
         return NULL;
     }
     memset(disp, 0, sizeof(*disp));
+    disp->frame_timer = (double)av_gettime() / 1000000.0;
     disp->frame = av_frame_alloc();
     if (!disp->frame) {
         LOGE("mem error");
@@ -96,13 +100,7 @@ disp_t* new_disp()
 
 static int video_display(disp_t *disp)
 {
-    SDL_Overlay *overlay = NULL;
-    SDL_Rect rect;
-
-    if (!overlay)
-        return -1;
-    compute_disp_coordinate(disp, &rect); 
-    SDL_DisplayYUVOverlay(overlay, &rect);
+    AVFrame *frame = queue_pop(disp->frame_queue);
     return 0;
 }
 
@@ -146,9 +144,31 @@ int video_refresh(disp_t *disp, double *remaining_time)
 {
     if (!queue_size(disp->frame_queue))
         return -1;
-    AVFrame *frame = queue_peek(disp->queue);
-    AVFrame *last_frame = queue_peek_last(disp->queue);
-    double duration = get_duration(disp, frame, last_frame);
+    AVFrame *frame = queue_peek(disp->frame_queue);
+    AVFrame *last_frame = queue_peek_last(disp->frame_queue);
+    double delay = get_duration(disp, frame, last_frame);
+    double cur_time = av_gettime_relative()/1000000.0;
+    // 还没到这一帧需要显示的时间
+    if (cur_time < disp->frame_timer + delay) {
+        *remaining_time = FFMIN(disp->frame_timer + delay - time, *remaining_time);
+        return 0;
+    }
+    disp->frame_timer += delay;
+    // 这一帧来的太晚了
+    if (delay > 0 && cur_time - disp->frame_timer > AV_SYNC_THRESHOLD_MAX)
+        disp->frame_timer = time;
+
+     if (queue_size(&disp->frame_queue) > 1) {
+         AVFrame *next_frame = queue_peek_next(&disp->frame_queue);
+         duration = get_duration(disp, frame, next_frame);
+         if (cur_time > disp->frame_timer + duration) {
+             // 丢弃太晚的帧
+             queue_pop(disp->frame_queue);
+             return 0;
+         }
+     }
+     video_display(disp);
+     return 0;
 }
 
 static void *disp_thread(void *arg)
