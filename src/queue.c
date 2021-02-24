@@ -1,5 +1,5 @@
 #include "public.h"
-#include "mem_pool.h"
+#include "queue.h"
 
 typedef struct {
     void *mem;
@@ -72,8 +72,7 @@ void * queue_pop(queue_t *queue)
     if (++queue->read_idx == queue->capacity)
         queue->read_idx = 0;
     queue->size--;
-    SDL_CondSignal(&queue->cond);
-    SDL_UnlockMutex(&queue->mutex);
+    pthread_cond_signal(&queue->cond);
     pthread_mutex_unlock(&queue->mutex);
     return blk->mem;
 }

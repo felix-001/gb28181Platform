@@ -14,7 +14,7 @@ add_dependencies(${APPNAME} libexosip2-5.2)
 add_dependencies(${APPNAME} libosip2-5.2)
 add_dependencies(${APPNAME} mxml-3.2)
 message(${PROJECT_BINARY_DIR}/thirdparty/lib)
-target_link_libraries(${APPNAME} eXosip2 osip2 osipparser2 mxml avformat avcodec swscale SDL pthread)
+target_link_libraries(${APPNAME} eXosip2 osip2 osipparser2 mxml avformat avcodec swscale SDLmain SDL pthread z m)
 foreach(f IN LISTS DIR_SRCS)
     get_filename_component(b ${f} NAME)
     set_source_files_properties(${f} PROPERTIES

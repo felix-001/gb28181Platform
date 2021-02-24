@@ -104,24 +104,23 @@ disp_t* new_disp()
 // Convert the image into YUV format that SDL uses
 static int frame_to_yv12(disp_t *disp, AVFrame *frame)
 {
-    AVPicture pict;
+    uint8_t *pixels[4];
+    int pitch[4];
     SDL_Overlay *overlay = disp->overlay;
 
-    pict.data[0] = overlay->pixels[0];
-    pict.data[1] = overlay->pixels[2];
-    pict.data[2] = overlay->pixels[1];
-    
-    pict.linesize[0] = overlay->pitches[0];
-    pict.linesize[1] = overlay->pitches[2];
-    pict.linesize[2] = overlay->pitches[1];
-    
+    pixels[0] = overlay->pixels[0];
+    pixels[1] = overlay->pixels[2];
+    pixels[2] = overlay->pixels[1];
+    pitch[0] = overlay->pitches[0];
+    pitch[1] = overlay->pitches[2];
+    pitch[2] = overlay->pitches[1];
     sws_scale(disp->swsCtx, 
               (uint8_t const * const *)frame->data,
 	          frame->linesize,
               0, 
               disp->codecCtx->height,
-	          pict.data, 
-              pict.linesize);
+	          pixels, 
+              pitch);
    return 0; 
 }
 
@@ -209,7 +208,7 @@ static void *evt_handle_thread(void *arg)
     return NULL;
 }
 
-inline double pts2sec(int64_t pts, AVRational time_base)
+double pts2sec(int64_t pts, AVRational time_base)
 {
     double sec = (pts == AV_NOPTS_VALUE) ? NAN : pts * av_q2d(time_base);
     return sec;
@@ -284,7 +283,6 @@ int start_disp(disp_t *disp)
 
 int decode(disp_t *disp, uint8_t *video, uint32_t len, int64_t pts)
 {
-    int done = 0;
     AVPacket pkt;
     
     av_init_packet(&pkt);
@@ -295,13 +293,20 @@ int decode(disp_t *disp, uint8_t *video, uint32_t len, int64_t pts)
         LOGE("av pkt from data error");
         return -1;
     }
-    ret = avcodec_decode_video2(disp->codecCtx, disp->frame, &done, &pkt);
+    ret = avcodec_send_packet(disp->codecCtx, &pkt);
     if (ret < 0) {
-        LOGE("decode video error");
+        LOGE("Error sending a packet for decoding");
         return -1;
     }
-    if (!done)
-        return 0;
+    while (ret >= 0) {
+        ret = avcodec_receive_frame(disp->codecCtx, disp->frame);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            break;
+        else if (ret < 0) {
+            LOGE("Error during decoding\n");
+            return -1;
+        }
+    }
     if (queue_push(disp->frame_queue, disp->frame) < 0) 
         return -1;
 

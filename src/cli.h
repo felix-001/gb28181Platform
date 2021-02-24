@@ -3,7 +3,6 @@
 
 #include "sip.h"
 
-extern int start_cli();
 extern int start_cli(sip_ctx_t *ctx);
 
 #endif
